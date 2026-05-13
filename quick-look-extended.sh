@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP="$HOME/Applications/QuickLookExtended.app"
-EXECUTABLE="$APP/Contents/MacOS/QuickLookExtended"
-PLIST="$APP/Contents/Info.plist"
+PLUGIN="$HOME/Library/QuickLook/QuickLookExtended.qlgenerator"
+EXECUTABLE="$PLUGIN/Contents/MacOS/QuickLookExtended"
+PLIST="$PLUGIN/Contents/Info.plist"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 usage() {
@@ -11,11 +11,13 @@ usage() {
 Usage: quick-look-extended [install|uninstall|verify]
 
 install    Register common text/code file extensions as plain text for Quick Look.
-uninstall  Remove the local mapping app and unregister it.
-verify     Print macOS content types for sample .md, .conf, and .yml files.
+uninstall  Remove the local mapping plugin and unregister it.
+verify     Print macOS content types for sample .md, .conf, .yml, and no-ext files.
 
-Note: this works by filename extension. It cannot force Apple-owned UTIs like
-public.yaml to use the built-in text Quick Look generator on every macOS version.
+Note: this works by filename extension. Extensionless files cannot be retargeted
+this way. For .yml/.yaml, success depends on whether the system has a pre-existing 
+CoreType association; if it does (common on newer macOS), this script cannot 
+override it to force plain-text preview.
 EOF
 }
 
@@ -24,8 +26,8 @@ reset_quicklook() {
   qlmanage -r cache >/dev/null
 }
 
-install_app() {
-  mkdir -p "$APP/Contents/MacOS"
+install_plugin() {
+  mkdir -p "$PLUGIN/Contents/MacOS"
 
   cat > "$EXECUTABLE" <<'EOF'
 #!/bin/sh
@@ -47,12 +49,12 @@ EOF
   <string>QuickLookExtended</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
-  <key>CFBundleVersion</key>
-  <string>1.0</string>
-  <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
   <key>LSUIElement</key>
   <true/>
+  <key>CFBundleVersion</key>
+  <string>1.1</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.1</string>
 
   <key>UTExportedTypeDeclarations</key>
   <array>
@@ -84,6 +86,8 @@ EOF
           <string>org</string>
           <string>tex</string>
           <string>bib</string>
+          <string>yaml</string>
+          <string>yml</string>
           <string>jsonl</string>
           <string>ndjson</string>
           <string>toml</string>
@@ -175,65 +179,27 @@ EOF
       </dict>
     </dict>
   </array>
-
-  <key>UTImportedTypeDeclarations</key>
-  <array>
-    <dict>
-      <key>UTTypeIdentifier</key>
-      <string>public.yaml</string>
-      <key>UTTypeDescription</key>
-      <string>YAML text file</string>
-      <key>UTTypeConformsTo</key>
-      <array>
-        <string>public.plain-text</string>
-      </array>
-      <key>UTTypeTagSpecification</key>
-      <dict>
-        <key>public.filename-extension</key>
-        <array>
-          <string>yaml</string>
-          <string>yml</string>
-        </array>
-      </dict>
-    </dict>
-  </array>
-
-  <key>CFBundleDocumentTypes</key>
-  <array>
-    <dict>
-      <key>CFBundleTypeName</key>
-      <string>Text-like file</string>
-      <key>LSItemContentTypes</key>
-      <array>
-        <string>local.quicklook.text</string>
-      </array>
-      <key>CFBundleTypeRole</key>
-      <string>Viewer</string>
-      <key>LSHandlerRank</key>
-      <string>None</string>
-    </dict>
-  </array>
 </dict>
 </plist>
 EOF
 
   plutil -lint "$PLIST" >/dev/null
-  touch "$APP"
-  "$LSREGISTER" -f "$APP"
+  touch "$PLUGIN"
+  "$LSREGISTER" -f "$PLUGIN" 2>/dev/null || true
   reset_quicklook
 
-  echo "Installed: $APP"
+  echo "Installed: $PLUGIN"
   echo "Restart Finder or log out/in if Finder still shows old previews."
 }
 
-uninstall_app() {
-  if [[ -d "$APP" ]]; then
-    "$LSREGISTER" -u "$APP" || true
-    rm -rf "$APP"
+uninstall_plugin() {
+  if [[ -d "$PLUGIN" ]]; then
+    "$LSREGISTER" -u "$PLUGIN" 2>/dev/null || true
+    rm -rf "$PLUGIN"
   fi
 
   reset_quicklook
-  echo "Uninstalled: $APP"
+  echo "Uninstalled: $PLUGIN"
 }
 
 verify_types() {
@@ -243,21 +209,23 @@ verify_types() {
   printf '# hello\n' > "$tmpdir/test.md"
   printf 'hello=true\n' > "$tmpdir/test.conf"
   printf 'hello: world\n' > "$tmpdir/test.yml"
+  printf 'no extension here\n' > "$tmpdir/testnoext"
 
   mdls -name kMDItemContentType -name kMDItemContentTypeTree \
     "$tmpdir/test.md" \
     "$tmpdir/test.conf" \
-    "$tmpdir/test.yml"
+    "$tmpdir/test.yml" \
+    "$tmpdir/testnoext"
 
   rm -rf "$tmpdir"
 }
 
 case "${1:-install}" in
   install)
-    install_app
+    install_plugin
     ;;
   uninstall)
-    uninstall_app
+    uninstall_plugin
     ;;
   verify)
     verify_types
